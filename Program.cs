@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json.Serialization;
 using Newtonsoft.Json.Linq;
+using OllamaSharp;
 using OllamaSharp.Models.Chat;
 using ProxyKit;
 
@@ -10,6 +11,10 @@ namespace Onllama.ThinkRemix
     public class Program
     {
         public static string TargetApiUrl = "http://127.0.0.1:11434";
+        public static string ActionApiUrl = "http://127.0.0.1:11434";
+        public static string ThinkModel = "deepseek-r1:1.5b";
+        public static string[] ThinkSeparator = ["</think>", "**×îÖÕ´ð°¸**", "**Final Answer**"];
+        public static OllamaApiClient OllamaApi = new OllamaApiClient(new Uri(ActionApiUrl));
 
         public static void Main(string[] args)
         {
@@ -51,10 +56,23 @@ namespace Onllama.ThinkRemix
                             if (msgs != null && msgs.Any())
                             {
 
-                                //msgs.Insert(0, new Message { Role = ChatRole.System.ToString(), Content = SystemPrompt });
-                                jBody["messages"] = JArray.FromObject(msgs);
-                                Console.WriteLine(jBody.ToString());
-
+                                await foreach (var res in OllamaApi.ChatAsync(new ChatRequest()
+                                               {
+                                                   Model = ThinkModel,
+                                                   Messages = msgs.Select(x =>
+                                                       new OllamaSharp.Models.Chat.Message(x.Role, x.Content)),
+                                                   Stream = false
+                                               }))
+                                {
+                                    msgs.Add(new Message
+                                    {
+                                        Role = ChatRole.Assistant.ToString(),
+                                        Content = res.Message.Content.Split(ThinkSeparator,
+                                            StringSplitOptions.RemoveEmptyEntries).First().Replace("<think>", string.Empty)
+                                    });
+                                    jBody["messages"] = JArray.FromObject(msgs);
+                                    Console.WriteLine(jBody.ToString());
+                                }
                             }
                         }
 
