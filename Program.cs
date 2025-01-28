@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json.Serialization;
 using Newtonsoft.Json.Linq;
 using OllamaSharp;
+using OllamaSharp.Models;
 using OllamaSharp.Models.Chat;
 using ProxyKit;
 
@@ -74,16 +75,16 @@ namespace Onllama.ThinkRemix
                         {
                             var msgs = jBody["messages"]?.ToObject<List<Message>>();
                             if (msgs != null && msgs.Any())
-                            {
-
                                 await foreach (var res in OllamaApi.ChatAsync(new ChatRequest()
                                                {
                                                    Model = thinkModel,
                                                    Messages = msgs.Select(x =>
                                                        new OllamaSharp.Models.Chat.Message(x.Role, x.Content)),
-                                                   Stream = false
+                                                   Stream = false,
+                                                   Options = new RequestOptions() {Stop = ThinkSeparator}
                                                }))
                                 {
+                                    Console.WriteLine(res.Message.Content);
                                     msgs.Add(new Message
                                     {
                                         Role = ChatRole.Assistant.ToString(),
@@ -94,7 +95,6 @@ namespace Onllama.ThinkRemix
                                     jBody["messages"] = JArray.FromObject(msgs);
                                     Console.WriteLine(jBody.ToString());
                                 }
-                            }
                         }
 
                         context.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes(jBody.ToString()));
