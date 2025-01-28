@@ -1,4 +1,3 @@
-using System.Net;
 using System.Text;
 using System.Text.Json.Serialization;
 using Newtonsoft.Json.Linq;
@@ -11,13 +10,23 @@ namespace Onllama.ThinkRemix
     public class Program
     {
         public static string TargetApiUrl = "http://127.0.0.1:11434";
-        public static string ActionApiUrl = "http://127.0.0.1:11434";
-        public static string ThinkModel = "deepseek-r1:1.5b";
+        public static string ThinkApiUrl = "http://127.0.0.1:11434";
+        public static string ThinkModel = "deepseek-r1:32b";
         public static string[] ThinkSeparator = ["</think>", "**最终答案**", "**Final Answer**"];
-        public static OllamaApiClient OllamaApi = new OllamaApiClient(new Uri(ActionApiUrl));
+        public static OllamaApiClient OllamaApi = new OllamaApiClient(new Uri(ThinkApiUrl));
 
         public static void Main(string[] args)
         {
+            var configurationRoot = new ConfigurationBuilder()
+                .AddEnvironmentVariables()
+                .AddJsonFile("appsettings.json")
+                .Build();
+
+            TargetApiUrl = configurationRoot["TargetApiUrl"] ?? "http://127.0.0.1:11434";
+            ThinkApiUrl = configurationRoot["ThinkApiUrl"] ?? "http://127.0.0.1:11434";
+            ThinkModel = configurationRoot["ThinkModel"] ?? "http://127.0.0.1:11434";
+            ThinkSeparator = configurationRoot["ThinkSeparator"]?.Split(",") ?? ["</think>", "**最终答案**", "**Final Answer**"];
+
             var builder = WebApplication.CreateBuilder(args);
 
             // Add services to the container.
