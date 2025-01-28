@@ -22,6 +22,9 @@ namespace Onllama.ThinkRemix
 
             // Add services to the container.
             builder.Services.AddAuthorization();
+            builder.Services.AddProxy(httpClientBuilder =>
+                httpClientBuilder.ConfigureHttpClient(client =>
+                    client.Timeout = TimeSpan.FromMinutes(5)));
 
 
             var app = builder.Build();
@@ -68,7 +71,8 @@ namespace Onllama.ThinkRemix
                                     {
                                         Role = ChatRole.Assistant.ToString(),
                                         Content = res.Message.Content.Split(ThinkSeparator,
-                                            StringSplitOptions.RemoveEmptyEntries).First().Replace("<think>", string.Empty)
+                                                StringSplitOptions.RemoveEmptyEntries).First()
+                                            .Replace("<think>", string.Empty).Trim() + Environment.NewLine
                                     });
                                     jBody["messages"] = JArray.FromObject(msgs);
                                     Console.WriteLine(jBody.ToString());
