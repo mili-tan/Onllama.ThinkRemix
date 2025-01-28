@@ -49,7 +49,15 @@ namespace Onllama.ThinkRemix
                     {
                         var body = await new StreamReader(context.Request.Body).ReadToEndAsync();
                         var jBody = JObject.Parse(body);
-
+                        
+                        var thinkModel = ThinkModel;
+                        var reqModel = jBody["model"]?.ToString();
+                        if (!string.IsNullOrEmpty(reqModel) && reqModel.Contains("+"))
+                        {
+                            var modelParts = reqModel.Split("+");
+                            jBody["model"] = modelParts.FirstOrDefault();
+                            thinkModel = modelParts.LastOrDefault();
+                        }
 
                         Console.WriteLine(jBody.ToString());
 
@@ -61,7 +69,7 @@ namespace Onllama.ThinkRemix
 
                                 await foreach (var res in OllamaApi.ChatAsync(new ChatRequest()
                                                {
-                                                   Model = ThinkModel,
+                                                   Model = thinkModel,
                                                    Messages = msgs.Select(x =>
                                                        new OllamaSharp.Models.Chat.Message(x.Role, x.Content)),
                                                    Stream = false
