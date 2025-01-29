@@ -15,10 +15,12 @@ namespace Onllama.ThinkRemix
     public class Program
     {
         public static string TargetApiUrl = "http://127.0.0.1:11434";
-        public static string ThinkApiUrl = "http://127.0.0.1:11434";
-        public static string ThinkModel = "deepseek-r1:32b";
+        public static string ThinkApiUrl = "https://api.deepseek.com";
+        public static string ThinkModel = "deepseek-reasoner";
+        public static string ThinkApiKey = string.Empty;
         public static string[] ThinkSeparator = ["</think>", "**最终答案**", "**Final Answer**"];
         public static bool UseOllamaStyleThinkApi = false;
+        public static int TimeoutMinutes = 15;
 
         public static void Main(string[] args)
         {
@@ -31,6 +33,9 @@ namespace Onllama.ThinkRemix
             ThinkApiUrl = configurationRoot["ThinkApiUrl"] ?? "http://127.0.0.1:11434";
             ThinkModel = configurationRoot["ThinkModel"] ?? "http://127.0.0.1:11434";
             ThinkSeparator = configurationRoot["ThinkSeparator"]?.Split(",") ?? ["</think>", "**最终答案**", "**Final Answer**"];
+            ThinkApiKey = configurationRoot["ThinkApiKey"] ?? "";
+            UseOllamaStyleThinkApi = configurationRoot["UseOllamaStyleThinkApi"]?.ToLower() == "true";
+            TimeoutMinutes = int.Parse(configurationRoot["TimeoutMinutes"] ?? "15");
 
             var builder = WebApplication.CreateBuilder(args);
 
@@ -38,7 +43,7 @@ namespace Onllama.ThinkRemix
             builder.Services.AddAuthorization();
             builder.Services.AddProxy(httpClientBuilder =>
                 httpClientBuilder.ConfigureHttpClient(client =>
-                    client.Timeout = TimeSpan.FromMinutes(15)));
+                    client.Timeout = TimeSpan.FromMinutes(TimeoutMinutes)));
 
 
             var app = builder.Build();
@@ -78,25 +83,28 @@ namespace Onllama.ThinkRemix
                         if (jBody.ContainsKey("messages"))
                         {
                             var msgs = jBody["messages"]?.ToObject<List<Message>>();
+
                             if (msgs != null && msgs.Any())
                                 if (UseOllamaStyleThinkApi)
                                 {
-                                    await foreach (var res in new OllamaApiClient(ThinkApiUrl).ChatAsync(new ChatRequest()
-                                                   {
-                                                       Model = thinkModel,
-                                                       Messages = msgs.Select(x =>
-                                                           new OllamaSharp.Models.Chat.Message(x.Role, x.Content)),
-                                                       Stream = false,
-                                                       Options = new RequestOptions() {Stop = ThinkSeparator}
-                                                   }))
+                                    await foreach (var res in new OllamaApiClient(ThinkApiUrl).ChatAsync(
+                                                       new ChatRequest()
+                                                       {
+                                                           Model = thinkModel,
+                                                           Messages = msgs.Select(x =>
+                                                               new OllamaSharp.Models.Chat.Message(x.Role, x.Content)),
+                                                           Stream = false,
+                                                           Options = new RequestOptions() {Stop = ThinkSeparator}
+                                                       }))
                                     {
                                         Console.WriteLine(res.Message.Content);
                                         msgs.Add(new Message
                                         {
                                             Role = ChatRole.Assistant.ToString(),
-                                            Content = "<think>"+ res.Message.Content.Split(ThinkSeparator,
-                                                    StringSplitOptions.RemoveEmptyEntries).First()
-                                                .Replace("<think>", string.Empty).Trim() +"</think>" + Environment.NewLine
+                                            Content = "<think>" + res.Message.Content.Split(ThinkSeparator,
+                                                              StringSplitOptions.RemoveEmptyEntries).First()
+                                                          .Replace("<think>", string.Empty).Trim() + "</think>" +
+                                                      Environment.NewLine
                                         });
                                         jBody["messages"] = JArray.FromObject(msgs);
                                         Console.WriteLine(jBody.ToString());
@@ -104,25 +112,27 @@ namespace Onllama.ThinkRemix
                                 }
                                 else
                                 {
-                                    var client =
-                                        new OpenAIClient(new ApiKeyCredential(""),
-                                                new OpenAIClientOptions() { Endpoint = new Uri("https://api.deepseek.com") })
-                                            .GetChatClient("deepseek-reasoner");
+                                    using var client = new HttpClient();
+                                    client.DefaultRequestHeaders.Add("Authorization", $"Bearer {ThinkApiKey}");
+                                    client.Timeout = TimeSpan.FromMinutes(TimeoutMinutes);
 
-                                    var result = (await client.CompleteChatAsync(msgs.Select(x =>
-                                            (ChatMessage) (x.Role?.ToLower() switch
+                                    var result = await client.PostAsync(
+                                        $"https://{new Uri(ThinkApiUrl).Host}/v1/chat/completions",
+                                        new StringContent(
+                                            JsonConvert.SerializeObject(new
                                             {
-                                                "user" => new UserChatMessage(x.Content),
-                                                "assistant" => new AssistantChatMessage(x.Content),
-                                                "tool" => new ToolChatMessage(x.Content),
-                                                "system" => new SystemChatMessage(x.Content),
-                                                _ => new UserChatMessage(x.Content)
-                                            })))).Value;
+                                                model = thinkModel,
+                                                messages = msgs
+                                            }),
+                                            Encoding.UTF8, "application/json"));
+                                    result.EnsureSuccessStatusCode();
 
+                                    var responseObject = JObject.Parse(await result.Content.ReadAsStringAsync());
                                     msgs.Add(new Message
                                     {
                                         Role = ChatRole.Assistant.ToString(),
-                                        Content = result.Content.First().Text + Environment.NewLine
+                                        Content = "<think>" + responseObject["choices"]?[0]?["message"]?["reasoning_content"] +
+                                                  "</think>" + Environment.NewLine
                                     });
 
                                     jBody["messages"] = JArray.FromObject(msgs);
