@@ -120,8 +120,12 @@ namespace Onllama.ThinkRemix
                                     jBodyClone["model"] = thinkModel;
                                     jBodyClone["stream"] = false;
 
-                                    var result = await client.PostAsync(
-                                        $"https://{new Uri(ThinkApiUrl).Host}/v1/chat/completions",
+                                    var uriBuilder = new UriBuilder(ThinkApiUrl)
+                                    {
+                                        Path = "/v1/chat/completions"
+                                    };
+
+                                    var result = await client.PostAsync(uriBuilder.Uri.ToString(),
                                         new StringContent(jBodyClone.ToString(), Encoding.UTF8, "application/json"));
                                     result.EnsureSuccessStatusCode();
 
