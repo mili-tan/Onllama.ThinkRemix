@@ -104,7 +104,7 @@ namespace Onllama.ThinkRemix
                                             Role = ChatRole.Assistant.ToString(),
                                             Content = "<think>" + res.Message.Content.Split(ThinkSeparator,
                                                               StringSplitOptions.RemoveEmptyEntries).First()
-                                                          .Replace("<think>", string.Empty).Trim() + "</think>" +
+                                                          .TrimStartString("<think>") + "</think>" +
                                                       Environment.NewLine
                                         });
                                         jBody["messages"] = JArray.FromObject(msgs);
@@ -130,12 +130,18 @@ namespace Onllama.ThinkRemix
                                     result.EnsureSuccessStatusCode();
 
                                     var responseObject = JObject.Parse(await result.Content.ReadAsStringAsync());
+                                    var msgToken = responseObject["choices"]?[0]?["message"];
+
                                     msgs.Add(new Message
                                     {
                                         Role = ChatRole.Assistant.ToString(),
                                         Content = "<think>" +
-                                                  responseObject["choices"]?[0]?["message"]?["reasoning_content"] +
-                                                  "</think>" + Environment.NewLine
+                                                  (msgToken != null && msgToken.Contains("reasoning_content")
+                                                      ? msgToken["reasoning_content"]
+                                                      : msgToken?["content"]?.ToString().Split(ThinkSeparator,
+                                                              StringSplitOptions.RemoveEmptyEntries).First()
+                                                          .TrimStartString("<think>")) + "</think>" +
+                                                  Environment.NewLine
                                     });
 
                                     jBody["messages"] = JArray.FromObject(msgs);
@@ -179,5 +185,14 @@ namespace Onllama.ThinkRemix
 
         [JsonProperty("tool_calls")]
         public object? ToolCalls { get; set; }
+    }
+
+    public static class StringExtensions
+    {
+        public static string TrimStartString(this string str, string prefix)
+        {
+            if (string.IsNullOrEmpty(prefix)) return str;
+            return str.Trim().StartsWith(prefix) ? str.Trim().Substring(prefix.Length) : str.Trim();
+        }
     }
 }
