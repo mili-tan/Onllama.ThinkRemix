@@ -22,6 +22,7 @@ namespace Onllama.ThinkRemix
         public static bool UseOllamaStyleThinkApi = false;
         public static int TimeoutMinutes = 15;
         public static bool ShowLog = true;
+        public static bool WithThinkToken = true;
 
         public static void Main(string[] args)
         {
@@ -35,8 +36,11 @@ namespace Onllama.ThinkRemix
             ThinkModel = configurationRoot["ThinkModel"] ?? "http://127.0.0.1:11434";
             ThinkSeparator = configurationRoot["ThinkSeparator"]?.Split(",") ?? ["</think>", "**×îÖÕ´ð°¸**", "**Final Answer**"];
             ThinkApiKey = configurationRoot["ThinkApiKey"] ?? "";
-            UseOllamaStyleThinkApi = configurationRoot["UseOllamaStyleThinkApi"]?.ToLower() == "true";
+
             TimeoutMinutes = int.Parse(configurationRoot["TimeoutMinutes"] ?? "15");
+            UseOllamaStyleThinkApi = configurationRoot["UseOllamaStyleThinkApi"]?.ToLower() == "true";
+            ShowLog = configurationRoot["ShowLog"]?.ToLower() == "true";
+            WithThinkToken = configurationRoot["WithThinkToken"]?.ToLower() == "true";
 
             var builder = WebApplication.CreateBuilder(args);
 
@@ -102,9 +106,11 @@ namespace Onllama.ThinkRemix
                                         msgs.Add(new Message
                                         {
                                             Role = ChatRole.Assistant.ToString(),
-                                            Content = "<think>" + res.Message.Content.Split(ThinkSeparator,
+                                            Content = (WithThinkToken ? "<think>" : string.Empty) +
+                                                      res.Message.Content.Split(ThinkSeparator,
                                                               StringSplitOptions.RemoveEmptyEntries).First()
-                                                          .TrimStartString("<think>") + "</think>" +
+                                                          .TrimStartString("<think>") +
+                                                      (WithThinkToken ? "</think>" : string.Empty) +
                                                       Environment.NewLine
                                         });
                                         jBody["messages"] = JArray.FromObject(msgs);
@@ -135,12 +141,13 @@ namespace Onllama.ThinkRemix
                                     msgs.Add(new Message
                                     {
                                         Role = ChatRole.Assistant.ToString(),
-                                        Content = "<think>" +
+                                        Content = (WithThinkToken ? "<think>" : string.Empty) +
                                                   (msgToken != null && msgToken.Contains("reasoning_content")
                                                       ? msgToken["reasoning_content"]
                                                       : msgToken?["content"]?.ToString().Split(ThinkSeparator,
                                                               StringSplitOptions.RemoveEmptyEntries).First()
-                                                          .TrimStartString("<think>")) + "</think>" +
+                                                          .TrimStartString("<think>")) +
+                                                  (WithThinkToken ? "<think/>" : string.Empty) +
                                                   Environment.NewLine
                                     });
 
