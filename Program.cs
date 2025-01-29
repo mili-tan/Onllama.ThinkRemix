@@ -21,6 +21,7 @@ namespace Onllama.ThinkRemix
         public static string[] ThinkSeparator = ["</think>", "**×îÖÕ´ð°¸**", "**Final Answer**"];
         public static bool UseOllamaStyleThinkApi = false;
         public static int TimeoutMinutes = 15;
+        public static bool ShowLog = true;
 
         public static void Main(string[] args)
         {
@@ -78,13 +79,14 @@ namespace Onllama.ThinkRemix
                             thinkModel = modelParts.LastOrDefault();
                         }
 
-                        Console.WriteLine(jBody.ToString());
+                        if (ShowLog) Console.WriteLine(jBody.ToString());
 
                         if (jBody.ContainsKey("messages"))
                         {
                             var msgs = jBody["messages"]?.ToObject<List<Message>>();
 
                             if (msgs != null && msgs.Any())
+                            {
                                 if (UseOllamaStyleThinkApi)
                                 {
                                     await foreach (var res in new OllamaApiClient(ThinkApiUrl).ChatAsync(
@@ -97,7 +99,6 @@ namespace Onllama.ThinkRemix
                                                            Options = new RequestOptions() {Stop = ThinkSeparator}
                                                        }))
                                     {
-                                        Console.WriteLine(res.Message.Content);
                                         msgs.Add(new Message
                                         {
                                             Role = ChatRole.Assistant.ToString(),
@@ -107,7 +108,6 @@ namespace Onllama.ThinkRemix
                                                       Environment.NewLine
                                         });
                                         jBody["messages"] = JArray.FromObject(msgs);
-                                        Console.WriteLine(jBody.ToString());
                                     }
                                 }
                                 else
@@ -116,28 +116,29 @@ namespace Onllama.ThinkRemix
                                     client.DefaultRequestHeaders.Add("Authorization", $"Bearer {ThinkApiKey}");
                                     client.Timeout = TimeSpan.FromMinutes(TimeoutMinutes);
 
+                                    var jBodyClone = jBody.DeepClone();
+                                    jBodyClone["model"] = thinkModel;
+                                    jBodyClone["stream"] = false;
+
                                     var result = await client.PostAsync(
                                         $"https://{new Uri(ThinkApiUrl).Host}/v1/chat/completions",
-                                        new StringContent(
-                                            JsonConvert.SerializeObject(new
-                                            {
-                                                model = thinkModel,
-                                                messages = msgs
-                                            }),
-                                            Encoding.UTF8, "application/json"));
+                                        new StringContent(jBodyClone.ToString(), Encoding.UTF8, "application/json"));
                                     result.EnsureSuccessStatusCode();
 
                                     var responseObject = JObject.Parse(await result.Content.ReadAsStringAsync());
                                     msgs.Add(new Message
                                     {
                                         Role = ChatRole.Assistant.ToString(),
-                                        Content = "<think>" + responseObject["choices"]?[0]?["message"]?["reasoning_content"] +
+                                        Content = "<think>" +
+                                                  responseObject["choices"]?[0]?["message"]?["reasoning_content"] +
                                                   "</think>" + Environment.NewLine
                                     });
 
                                     jBody["messages"] = JArray.FromObject(msgs);
-                                    Console.WriteLine(jBody.ToString());
                                 }
+
+                                if (ShowLog) Console.WriteLine(jBody.ToString());
+                            }
                         }
 
                         context.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes(jBody.ToString()));
