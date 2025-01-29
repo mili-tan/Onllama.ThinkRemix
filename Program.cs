@@ -1,9 +1,13 @@
+using System.ClientModel;
 using System.Text;
 using System.Text.Json.Serialization;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using OllamaSharp;
 using OllamaSharp.Models;
 using OllamaSharp.Models.Chat;
+using OpenAI;
+using OpenAI.Chat;
 using ProxyKit;
 
 namespace Onllama.ThinkRemix
@@ -14,7 +18,7 @@ namespace Onllama.ThinkRemix
         public static string ThinkApiUrl = "http://127.0.0.1:11434";
         public static string ThinkModel = "deepseek-r1:32b";
         public static string[] ThinkSeparator = ["</think>", "**×îÖÕ´ð°¸**", "**Final Answer**"];
-        public static OllamaApiClient OllamaApi = new OllamaApiClient(new Uri(ThinkApiUrl));
+        public static bool UseOllamaStyleThinkApi = false;
 
         public static void Main(string[] args)
         {
@@ -34,7 +38,7 @@ namespace Onllama.ThinkRemix
             builder.Services.AddAuthorization();
             builder.Services.AddProxy(httpClientBuilder =>
                 httpClientBuilder.ConfigureHttpClient(client =>
-                    client.Timeout = TimeSpan.FromMinutes(5)));
+                    client.Timeout = TimeSpan.FromMinutes(15)));
 
 
             var app = builder.Build();
@@ -75,23 +79,52 @@ namespace Onllama.ThinkRemix
                         {
                             var msgs = jBody["messages"]?.ToObject<List<Message>>();
                             if (msgs != null && msgs.Any())
-                                await foreach (var res in OllamaApi.ChatAsync(new ChatRequest()
-                                               {
-                                                   Model = thinkModel,
-                                                   Messages = msgs.Select(x =>
-                                                       new OllamaSharp.Models.Chat.Message(x.Role, x.Content)),
-                                                   Stream = false,
-                                                   Options = new RequestOptions() {Stop = ThinkSeparator}
-                                               }))
+                                if (UseOllamaStyleThinkApi)
                                 {
-                                    Console.WriteLine(res.Message.Content);
+                                    await foreach (var res in new OllamaApiClient(ThinkApiUrl).ChatAsync(new ChatRequest()
+                                                   {
+                                                       Model = thinkModel,
+                                                       Messages = msgs.Select(x =>
+                                                           new OllamaSharp.Models.Chat.Message(x.Role, x.Content)),
+                                                       Stream = false,
+                                                       Options = new RequestOptions() {Stop = ThinkSeparator}
+                                                   }))
+                                    {
+                                        Console.WriteLine(res.Message.Content);
+                                        msgs.Add(new Message
+                                        {
+                                            Role = ChatRole.Assistant.ToString(),
+                                            Content = "<think>"+ res.Message.Content.Split(ThinkSeparator,
+                                                    StringSplitOptions.RemoveEmptyEntries).First()
+                                                .Replace("<think>", string.Empty).Trim() +"</think>" + Environment.NewLine
+                                        });
+                                        jBody["messages"] = JArray.FromObject(msgs);
+                                        Console.WriteLine(jBody.ToString());
+                                    }
+                                }
+                                else
+                                {
+                                    var client =
+                                        new OpenAIClient(new ApiKeyCredential(""),
+                                                new OpenAIClientOptions() { Endpoint = new Uri("https://api.deepseek.com") })
+                                            .GetChatClient("deepseek-reasoner");
+
+                                    var result = (await client.CompleteChatAsync(msgs.Select(x =>
+                                            (ChatMessage) (x.Role?.ToLower() switch
+                                            {
+                                                "user" => new UserChatMessage(x.Content),
+                                                "assistant" => new AssistantChatMessage(x.Content),
+                                                "tool" => new ToolChatMessage(x.Content),
+                                                "system" => new SystemChatMessage(x.Content),
+                                                _ => new UserChatMessage(x.Content)
+                                            })))).Value;
+
                                     msgs.Add(new Message
                                     {
                                         Role = ChatRole.Assistant.ToString(),
-                                        Content = res.Message.Content.Split(ThinkSeparator,
-                                                StringSplitOptions.RemoveEmptyEntries).First()
-                                            .Replace("<think>", string.Empty).Trim() + Environment.NewLine
+                                        Content = result.Content.First().Text + Environment.NewLine
                                     });
+
                                     jBody["messages"] = JArray.FromObject(msgs);
                                     Console.WriteLine(jBody.ToString());
                                 }
@@ -116,21 +149,20 @@ namespace Onllama.ThinkRemix
         }
     }
 
+
+    [JsonObject(ItemNullValueHandling = NullValueHandling.Ignore)]
     public class Message
     {
-        [JsonPropertyName("role")] public string? Role { get; set; }
-        [JsonPropertyName("content")] public string? Content { get; set; }
+        [JsonProperty("role")] public string? Role { get; set; }
+        [JsonProperty("content")] public string? Content { get; set; }
 
-        [JsonPropertyName("images")]
-        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        [JsonProperty("images")]
         public object? Images { get; set; }
 
-        [JsonPropertyName("image_url")]
-        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        [JsonProperty("image_url")]
         public object? ImageUrl { get; set; }
 
-        [JsonPropertyName("tool_calls")]
-        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        [JsonProperty("tool_calls")]
         public object? ToolCalls { get; set; }
     }
 }
