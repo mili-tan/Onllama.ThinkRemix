@@ -23,6 +23,7 @@ namespace Onllama.ThinkRemix
         public static int TimeoutMinutes = 15;
         public static bool ShowLog = true;
         public static bool WithThinkToken = true;
+        public static int ThinkRound = 1;
 
         public static void Main(string[] args)
         {
@@ -36,6 +37,7 @@ namespace Onllama.ThinkRemix
             ThinkModel = configurationRoot["ThinkModel"] ?? "http://127.0.0.1:11434";
             ThinkSeparator = configurationRoot["ThinkSeparator"]?.Split(",") ?? ["</think>", "**最终答案**", "**Final Answer**"];
             ThinkApiKey = configurationRoot["ThinkApiKey"] ?? "";
+            ThinkRound = int.Parse(configurationRoot["ThinkRound"] ?? "1");
 
             TimeoutMinutes = int.Parse(configurationRoot["TimeoutMinutes"] ?? "15");
             UseOllamaStyleThinkApi = configurationRoot["UseOllamaStyleThinkApi"]?.ToLower() == "true";
@@ -93,28 +95,45 @@ namespace Onllama.ThinkRemix
                             {
                                 if (UseOllamaStyleThinkApi)
                                 {
-                                    await foreach (var res in new OllamaApiClient(ThinkApiUrl).ChatAsync(
-                                                       new ChatRequest()
-                                                       {
-                                                           Model = thinkModel,
-                                                           Messages = msgs.Select(x =>
-                                                               new OllamaSharp.Models.Chat.Message(x.Role, x.Content)),
-                                                           Stream = false,
-                                                           Options = new RequestOptions() {Stop = ThinkSeparator}
-                                                       }))
+                                    var resStr = string.Empty;
+                                    var oMsgs = msgs.Select(x =>
+                                        new OllamaSharp.Models.Chat.Message(x.Role, x.Content)).ToList();
+
+                                    for (int i = 0; i < ThinkRound; i++)
                                     {
-                                        msgs.Add(new Message
+                                        if (!string.IsNullOrEmpty(resStr))
                                         {
-                                            Role = ChatRole.Assistant.ToString(),
-                                            Content = (WithThinkToken ? "<think>" : string.Empty) +
-                                                      res.Message.Content.Split(ThinkSeparator,
-                                                              StringSplitOptions.RemoveEmptyEntries).First()
-                                                          .TrimStartString("<think>") +
-                                                      (WithThinkToken ? "</think>" : string.Empty) +
-                                                      Environment.NewLine
-                                        });
-                                        jBody["messages"] = JArray.FromObject(msgs);
+                                            resStr += (i == ThinkRound - 1 ? "让我最后确认一下…" : "等等…");
+                                            oMsgs.Add(new OllamaSharp.Models.Chat.Message(ChatRole.Assistant.ToString(), resStr));
+                                            if (ShowLog) Console.WriteLine("RE-Think:");
+                                            if (ShowLog) Console.WriteLine(JsonConvert.SerializeObject(oMsgs));
+                                        }
+                                        await foreach (var res in new OllamaApiClient(ThinkApiUrl).ChatAsync(
+                                                           new ChatRequest()
+                                                           {
+                                                               Model = thinkModel,
+                                                               Messages = oMsgs,
+                                                               Options = new RequestOptions() { Stop = ThinkSeparator }
+                                                           }))
+                                        {
+                                            Console.Write(res.Message.Content);
+                                            resStr += res.Message.Content;
+                                        }
+
+                                        Console.WriteLine("Round:" + i);
                                     }
+
+                                    msgs.Add(new Message
+                                    {
+                                        Role = ChatRole.Assistant.ToString(),
+                                        Content = (WithThinkToken ? "<think>" : string.Empty) +
+                                                  resStr.Split(ThinkSeparator,
+                                                          StringSplitOptions.RemoveEmptyEntries).First()
+                                                      .TrimStartString("<think>") +
+                                                  (WithThinkToken ? "</think>" : string.Empty) +
+                                                  Environment.NewLine
+                                    });
+                                    jBody["messages"] = JArray.FromObject(msgs);
                                 }
                                 else
                                 {
